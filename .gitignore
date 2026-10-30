@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Data and outputs (recreate with scripts/)
+data/raw/*
+data/processed/*
+results/*
+!**/.gitkeep
+*.h5
+*.hdf5
+*.npy
+*.faiss
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
