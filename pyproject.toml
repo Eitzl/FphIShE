@@ -21,7 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 align = ["parasail"]
 gpu = ["numba"]
-embed = ["torch", "transformers", "sentencepiece"]
+embed = ["torch", "transformers", "sentencepiece", "protobuf"]
 dev = ["pytest", "ruff"]
 
 [tool.setuptools.packages.find]
