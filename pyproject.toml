@@ -16,6 +16,7 @@ dependencies = [
     "faiss-cpu",
     "h5py",
     "biopython",
+    "matplotlib",
 ]
 
 [project.optional-dependencies]
