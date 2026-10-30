@@ -3,6 +3,14 @@
 FphIShE (Fast protein-homolog Indexed Search Engine) is Evan Fitzhugh's fall 2026 UCSC
 bioinformatics course project. It is graded; final presentations start **Dec 1, 2026**.
 
+## Coding principles
+
+- **YAGNI (You ain't gonna need it).** Agents and humans tend to over-engineer. Think about
+  whether something is actually required before building it.
+- **Simple first.** The simplest solution will always be the best one. Don't create
+  multi-layered helper function wrappers; write flat, direct logic.
+- **Delete aggressively.** Less code = fewer bugs.
+
 ## Research question
 
 Can an embedding prefilter (FAISS search over ProtT5 protein embeddings) plus a Smith-Waterman
