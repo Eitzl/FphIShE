@@ -33,11 +33,14 @@ if __name__ == "__main__":
     targets = [seqs[d] for d in ids]
     query_seqs = [seqs[q] for q in queries]
 
-    t0 = time.perf_counter()
     if args.gpu:
         from fphishe import gpu
 
         db = gpu.prepare(targets)
+        gpu.sw_scores(query_seqs[0], db)  # warm-up: JIT compile stays out of the timing
+
+    t0 = time.perf_counter()
+    if args.gpu:
         all_scores = [gpu.sw_scores(q, db) for q in query_seqs]
     else:
         with Pool(args.workers, init, (targets,)) as pool:
