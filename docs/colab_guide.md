@@ -365,7 +365,7 @@ excluded).
 - `fphishe` is the prefilter plus the parasail rerank.
 - `fphishe_build` is PCA + index build, and `blast_build` is `makeblastdb`. Both are one-time costs
   divided by the number of queries, so their ms/query isn't a meaningful per-query cost.
-- `sw_gpu` currently includes the GPU upload and the JIT compile (see section 9).
+- `sw_gpu` excludes the GPU upload and JIT compile (a warm-up call runs before the timer).
 - Embedding time is not in the table. Record it yourself from section 2.
 
 ### What "this worked" roughly looks like
@@ -470,8 +470,6 @@ These come from reading the code. Nothing here is fixed yet.
   memory, a query profile, or an intra-task (anti-diagonal / striped) design are the standard next
   steps.
 - One kernel launch plus a synchronous copy back per query. Queries could be batched.
-- The `sw_gpu` timing in `search_sw.py` includes `prepare` (upload) and the first-call JIT compile,
-  so it overstates the steady-state per-query cost.
 
 **Report and bookkeeping**
 
