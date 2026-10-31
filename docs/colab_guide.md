@@ -3,8 +3,9 @@
 This guide takes you from an empty Colab session to a benchmark table and plot. The notebook
 `notebooks/run_mvp.ipynb` has the same steps as cells, with the same section numbers.
 
-This is the first end-to-end run of an ultra-rough MVP. The GPU code has never run on real
-hardware, so plan on test-fix cycles in section 5. Fill in the checklist at the end as you go.
+The MVP first ran end to end on 2026-10-30 (A100 runtime). Those numbers are in section 6.
+Fill in the checklist at the end as you go. `notebooks/test_improvements.ipynb` runs the
+follow-up experiments (cosine metric, nprobe, PCA dim, prefilter diagnosis).
 
 ## What you're about to run
 
@@ -36,24 +37,27 @@ Every script runs from the repo root and needs no arguments. All scripts except
 `download_data.py` and `embed.py` use relative paths, so a different working directory breaks
 them.
 
-Rough time budget on a free T4: setup about 5 min, embedding about 10–30 min (estimate, never
-measured), everything else a few minutes.
+Time budget: setup about 5 min. Embedding took 1.6 min on an A100; on a free T4, estimate
+10–30 min. Everything else takes a few minutes.
 
 ## 0. Colab setup
 
 ### 0.1 GPU runtime
 
-Runtime → Change runtime type → **T4 GPU** → Save. Then check it:
+Runtime → Change runtime type → any GPU → Save. The free one is a T4; an A100 or L4 is faster.
+Timings depend on the hardware, so `report.py` prints the GPU name and CPU count. Then check it:
 
 ```
 !nvidia-smi
 ```
 
-You should see a Tesla T4. If you get "command not found", the runtime has no GPU.
+You should see your GPU's name. If you get "command not found", the runtime has no GPU.
 
-### 0.2 GitHub token in Colab Secrets
+### 0.2 GitHub token in Colab Secrets (private repo only)
 
-The repo (https://github.com/Eitzl/FphIShE) is private, so cloning needs a personal access token.
+A plain `!git clone -b feature/work-space https://github.com/Eitzl/FphIShE.git /content/FphIShE`
+worked in the 2026-10-30 run. Skip to 0.3 and use that unless it fails with an authentication
+error. Then a private repo needs a personal access token:
 
 1. On GitHub, go to Settings → Developer settings → Personal access tokens → Fine-grained tokens →
    Generate new token. For repository access, pick "Only select repositories" → `Eitzl/FphIShE`.
@@ -197,6 +201,18 @@ uses the last line for each method.
 
 ```
 !rm -f results/timings.tsv
+```
+
+### 3.1 Query embedding time
+
+fphishe's search time excludes embedding the query, because the queries are already in
+`embeddings.h5`. A new protein would have to go through ProtT5 first. This embeds the 500 queries
+again into a separate file and logs the time as `embed` in `timings.tsv`. Run it after the
+`rm` above, or the line is deleted.
+
+```
+!rm -f data/processed/query_embeddings.h5
+!python scripts/embed.py --ids data/processed/queries.txt --out data/processed/query_embeddings.h5
 ```
 
 ## 4. Searches (CPU)
@@ -349,6 +365,9 @@ hits files (for example a `hits_sw_gpu.tsv` from a broken run) or they show up a
   Same fold but different superfamily is ignored (the homology is unclear), and so is the
   self-hit. 1.0 means every homolog ranks above every clear non-homolog.
 - **95% CI**: bootstrap CI of that mean over queries.
+- **family / remote**: the same sensitivity, counting only close homologs (same family) or only
+  remote ones (same superfamily, different family). A false positive still ends the walk in both.
+  Embeddings are expected to help most on `remote`.
 - **p vs fphishe**: two-sided paired permutation (sign-flip) test on the per-query differences
   between this method and fphishe. A small p means the difference isn't noise from 500 queries.
 - **recall@k**: fraction of each query's true homologs in its top k (self excluded). The
@@ -359,14 +378,18 @@ hits files (for example a `hits_sw_gpu.tsv` from a broken run) or they show up a
 
 ### Timings
 
-The report prints `seconds`, `n queries`, and `ms/query` per method, for search only (data loading
-excluded).
+The report prints `seconds`, item count, `ms/item`, and the device per method, for search only
+(data loading excluded). The header line names the GPU and CPU count. Pass `--repeats 3` to any
+search script to time it three times and log the median.
 
 - `fphishe` is the prefilter plus the parasail rerank.
 - `fphishe_build` is PCA + index build, and `blast_build` is `makeblastdb`. Both are one-time costs
   divided by the number of queries, so their ms/query isn't a meaningful per-query cost.
 - `sw_gpu` excludes the GPU upload and JIT compile (a warm-up call runs before the timer).
-- Embedding time is not in the table. Record it yourself from section 2.
+- `embed` is ProtT5 time per sequence (model loading excluded), from section 3.1. The report adds
+  it to `fphishe` as "end to end", which is the cost of a new query.
+- The device column says how many CPU cores ran each step. fphishe's rerank uses one core, while
+  `sw` and `blast` use all of them, so compare per-core costs when the counts differ.
 
 ### What "this worked" roughly looks like
 
@@ -379,7 +402,10 @@ excluded).
   near-zero fphishe now means the embeddings didn't load or match. Check that
   `embeddings.h5` has 15177 entries and that it came from this FASTA.
 
-No expected numbers exist yet for real embeddings. This run produces the first ones.
+First real numbers (2026-10-30, A100 runtime, 500 queries): sens `sw` 0.293, `blast` 0.274,
+`fphishe` 0.257, `prefilter` 0.239; prefilter recall@100 0.425. A k sweep (25–400) raised recall
+to 0.52 but left fphishe sensitivity at about 0.25, so the next questions are where the prefilter
+loses homologs (section 7) and how the rerank scores them.
 
 ### Save results
 
@@ -396,7 +422,13 @@ Each one is a single flag. Rerun the affected search, then the report.
 | prefilter size k | `search_fphishe.py --k 50` (and `report.py --k 50`) | Recall vs rerank cost. Larger k raises the ceiling on fphishe sensitivity, and the rerank cost grows linearly. |
 | PCA dim | `search_fphishe.py --dim 64` / `256` / `512` | How much of ProtT5's 1024-d space the neighbour search needs. |
 | IVF nprobe | `search_fphishe.py --nprobe 1` / `25` / `100` | Recall lost to approximate search. `--nprobe 100` with `--nlist 100` searches every list, which is exact. |
+| metric | `search_fphishe.py --metric cos` | Cosine similarity instead of L2 distance. ProtT5 embeddings often work better this way. |
 | queries n | `pick_queries.py --n 1000`, then rerun all searches | Tighter CIs. This makes all hits stale (section 3). |
+
+`diagnose_prefilter.py` takes the same flags as `search_fphishe.py`. It looks at every true homolog
+that full SW ranks above its first false positive and reports which stage drops the ones the
+prefilter misses: the IVF approximation, the PCA reduction, or the embedding itself (with how deep
+in the ranking those sit). Run `search_sw.py` first.
 
 A k sweep that keeps each summary:
 
@@ -413,7 +445,7 @@ comparable across rows. Each run overwrites `hits_fphishe.tsv` and `sensitivity.
 |---|---|---|
 | `git clone` asks for a password, or returns 403 / "Authentication failed" | Token missing, expired, or not granted this repo | Regenerate the fine-grained token with Contents: Read on `Eitzl/FphIShE`. If a fine-grained token can't see the repo (for example, you're a collaborator, not the owner), use a classic token with `repo` scope as a fallback. |
 | `SecretNotFoundError` / `NotebookAccessError` from `userdata.get` | Secret not created, misnamed, or notebook access off | Key icon → check the name `GH_TOKEN` and the "Notebook access" toggle |
-| `nvidia-smi: command not found`, or embed says `on cpu` | No GPU runtime | Runtime → Change runtime type → T4 GPU (this resets the session) |
+| `nvidia-smi: command not found`, or embed says `on cpu` | No GPU runtime | Runtime → Change runtime type → a GPU (this resets the session) |
 | `FileNotFoundError: data/raw/astral40.fa` or `data/processed/...` | Not in the repo root | `%cd /content/FphIShE` |
 | `ModuleNotFoundError: fphishe` | Install not run, or a new session | Redo section 0.4 |
 | Tokenizer error mentioning `tiktoken` | protobuf missing (transformers 5) | `!pip install protobuf sentencepiece` |
@@ -432,7 +464,7 @@ comparable across rows. Each run overwrites `hits_fphishe.tsv` and `sensitivity.
 
 ## 9. Known rough edges and optimization candidates
 
-These come from reading the code. Nothing here is fixed yet.
+These come from reading the code and the first run.
 
 **Cost and pipeline**
 
@@ -473,10 +505,6 @@ These come from reading the code. Nothing here is fixed yet.
 
 **Report and bookkeeping**
 
-- **The report recomputes per-query homolog counts for each method:** `evaluate.n_true` is O(N)
-  and runs twice per query per method. `pick_queries.py` already counts superfamilies once.
-  Locally the report took about 2.5 s for 50 queries, so it scales to tens of seconds at 500
-  (estimate).
 - `timings.tsv` is append-only, and the last line per method wins.
 - `report.py --k` must be matched to `search_fphishe.py --k` by hand.
 - Scripts other than download and embed use cwd-relative paths.

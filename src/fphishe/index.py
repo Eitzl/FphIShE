@@ -3,9 +3,14 @@
 import faiss
 
 
-def build_index(X, nlist=100):
-    quantizer = faiss.IndexFlatL2(X.shape[1])
-    index = faiss.IndexIVFFlat(quantizer, X.shape[1], nlist)
+def build_index(X, nlist=100, metric="l2"):
+    """metric "l2" ranks by Euclidean distance; "cos" by cosine similarity (inner product of
+    unit vectors), so with "cos" X and the queries must be L2-normalized first."""
+    d = X.shape[1]
+    if metric == "cos":
+        index = faiss.IndexIVFFlat(faiss.IndexFlatIP(d), d, nlist, faiss.METRIC_INNER_PRODUCT)
+    else:
+        index = faiss.IndexIVFFlat(faiss.IndexFlatL2(d), d, nlist)
     index.train(X)
     index.add(X)
     return index

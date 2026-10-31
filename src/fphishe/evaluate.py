@@ -3,6 +3,9 @@
 A hit is a true positive if it shares the query's superfamily, a false positive if it is in a
 different fold, and ignored otherwise (same fold, different superfamily: homology unclear).
 Self hits are always ignored. Both metrics return None for queries with no true homologs.
+
+`level` restricts which true positives count: "family" (same family, close homologs) or
+"remote" (same superfamily, different family). None counts all of them.
 """
 
 
@@ -16,23 +19,38 @@ def label(q_sccs, t_sccs):
     return 0
 
 
-def n_true(query, sccs):
-    return sum(label(sccs[query], s) == 1 for t, s in sccs.items() if t != query)
+def counts(q_sccs, t_sccs, level):
+    """Whether this pair is a true positive at the given level."""
+    if label(q_sccs, t_sccs) != 1:
+        return False
+    if level is None:
+        return True
+    same_family = q_sccs.split(".")[:4] == t_sccs.split(".")[:4]
+    return same_family == (level == "family")
 
 
-def sensitivity_to_first_fp(query, ranked_targets, sccs):
+_n_true = {}  # every method is scored against the same labels, so count once
+
+
+def n_true(query, sccs, level=None):
+    key = (id(sccs), query, level)
+    if key not in _n_true:
+        _n_true[key] = sum(counts(sccs[query], s, level) for t, s in sccs.items() if t != query)
+    return _n_true[key]
+
+
+def sensitivity_to_first_fp(query, ranked_targets, sccs, level=None):
     """Fraction of the query's true homologs ranked above its first false positive."""
-    total = n_true(query, sccs)
+    total = n_true(query, sccs, level)
     if total == 0:
         return None
     tp = 0
     for t in ranked_targets:
         if t == query:
             continue
-        lab = label(sccs[query], sccs[t])
-        if lab == -1:
+        if label(sccs[query], sccs[t]) == -1:
             break
-        tp += lab == 1
+        tp += counts(sccs[query], sccs[t], level)
     return tp / total
 
 

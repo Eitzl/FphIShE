@@ -1,5 +1,6 @@
 """End-to-end two-stage search: prefilter then rerank."""
 
+import faiss
 import numpy as np
 
 from fphishe import index as ix
@@ -10,11 +11,13 @@ def search(index, db_ids, db_seqs, Q, query_seqs, k=100, nprobe=10, score=sw_sco
     """Prefilter a batch of queries (rows of Q) to k candidates each, then rerank by alignment.
 
     Returns (prefilter, reranked): one [(db_id, score)] list per query, best first. Prefilter
-    scores are negative L2 distances in the reduced embedding space.
+    scores are cosine similarities for an inner-product index, else negative L2 distances.
     """
     D, rows = ix.search(index, Q, k, nprobe)
+    if index.metric_type != faiss.METRIC_INNER_PRODUCT:
+        D = -np.sqrt(np.maximum(D, 0))
     prefilter = [
-        [(db_ids[r], -float(np.sqrt(d))) for d, r in zip(dq, rq) if r != -1]
+        [(db_ids[r], float(d)) for d, r in zip(dq, rq) if r != -1]
         for dq, rq in zip(D, rows)
     ]
     reranked = [
